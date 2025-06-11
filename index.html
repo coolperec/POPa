@@ -4,12 +4,33 @@
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Unity WebGL Player | POPa</title>
+    
+    <!-- Добавьте эти 2 метатега для адаптивности -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
+    
+    <!-- Добавьте скрипт Telegram Games API -->
+    <script src="https://telegram.org/js/games.js"></script>
+    <script>
+      // Инициализация Telegram WebView
+      var TelegramGameProxy = {
+        init: function() { 
+          Telegram.Game.init();
+        },
+        receiveScore: function(score) {
+          Telegram.Game.score = score;
+        }
+      };
+    </script>
   </head>
   <body>
     <div id="unity-container" class="unity-desktop">
-      <canvas id="unity-canvas" width=2556 height=1179 tabindex="-1"></canvas>
+      <!-- Измените размеры canvas для мобильных устройств -->
+      <canvas id="unity-canvas" width=800 height=600 tabindex="-1"></canvas>
+      
       <div id="unity-loading-bar">
         <div id="unity-logo"></div>
         <div id="unity-progress-bar-empty">
@@ -24,6 +45,15 @@
       </div>
     </div>
     <script>
+      // Добавьте эту функцию для обработки сообщений из Unity
+      function handleUnityMessage(message) {
+        if (message === "GameLoaded") {
+          Telegram.Game.ready();
+        } else if (message.startsWith("Score:")) {
+          const score = parseInt(message.split(":")[1]);
+          TelegramGameProxy.receiveScore(score);
+        }
+      }
 
       var container = document.querySelector("#unity-container");
       var canvas = document.querySelector("#unity-canvas");
@@ -32,28 +62,8 @@
       var fullscreenButton = document.querySelector("#unity-fullscreen-button");
       var warningBanner = document.querySelector("#unity-warning");
 
-      // Shows a temporary message banner/ribbon for a few seconds, or
-      // a permanent error message on top of the canvas if type=='error'.
-      // If type=='warning', a yellow highlight color is used.
-      // Modify or remove this function to customize the visually presented
-      // way that non-critical warnings and error messages are presented to the
-      // user.
       function unityShowBanner(msg, type) {
-        function updateBannerVisibility() {
-          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
-        }
-        var div = document.createElement('div');
-        div.innerHTML = msg;
-        warningBanner.appendChild(div);
-        if (type == 'error') div.style = 'background: red; padding: 10px;';
-        else {
-          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
-          setTimeout(function() {
-            warningBanner.removeChild(div);
-            updateBannerVisibility();
-          }, 5000);
-        }
-        updateBannerVisibility();
+        // ... существующий код ...
       }
 
       var buildUrl = "Build";
@@ -67,35 +77,38 @@
         productName: "POPa",
         productVersion: "1.0.2",
         showBanner: unityShowBanner,
+        
+        // Добавьте этот параметр для связи с Unity
+        onProgress: UnityProgress,
       };
 
-      // By default, Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
+      // Добавьте обработчик для сообщений из Unity
+      function UnityProgress(unityInstance, progress) {
+        progressBarFull.style.width = 100 * progress + "%";
+        
+        // Когда игра полностью загружена
+        if (progress === 1 && unityInstance) {
+          unityInstance.SendMessage('GameManager', 'OnWebGLInitialized');
+        }
+      }
 
+      // Автоматически определяем мобильные устройства
       if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
-
         var meta = document.createElement('meta');
         meta.name = 'viewport';
         meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
         document.getElementsByTagName('head')[0].appendChild(meta);
+        
         container.className = "unity-mobile";
         canvas.className = "unity-mobile";
-
-        // To lower canvas resolution on mobile devices to gain some
-        // performance, uncomment the following line:
-        // config.devicePixelRatio = 1;
-
-
+        
+        // Оптимизация для мобильных устройств
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        config.devicePixelRatio = 1;
       } else {
-        // Desktop style: Render the game canvas in a window that can be maximized to fullscreen:
-
-        canvas.style.width = "2556px";
-        canvas.style.height = "1179px";
+        canvas.style.width = "800px";
+        canvas.style.height = "600px";
       }
 
       loadingBar.style.display = "block";
@@ -104,19 +117,28 @@
       script.src = loaderUrl;
       script.onload = () => {
         createUnityInstance(canvas, config, (progress) => {
-          progressBarFull.style.width = 100 * progress + "%";
-              }).then((unityInstance) => {
-                loadingBar.style.display = "none";
-                fullscreenButton.onclick = () => {
-                  unityInstance.SetFullscreen(1);
-                };
-              }).catch((message) => {
-                alert(message);
-              });
-            };
+          UnityProgress(null, progress);
+        }).then((unityInstance) => {
+          loadingBar.style.display = "none";
+          
+          // Инициализация Telegram API
+          TelegramGameProxy.init();
+          
+          fullscreenButton.onclick = () => {
+            unityInstance.SetFullscreen(1);
+          };
+          
+          // Добавьте глобальную ссылку для Unity
+          window.unityInstance = unityInstance;
+        }).catch((message) => {
+          alert(message);
+        });
+      };
 
       document.body.appendChild(script);
-
+      
+      // Добавьте обработчик сообщений из Unity
+      window.receiveUnityMessage = handleUnityMessage;
     </script>
   </body>
 </html>
